@@ -1,6 +1,3 @@
-import sys
-sys.stdout.reconfigure(encoding='utf-8')
-
 import os
 import numpy as np
 from PIL import Image
@@ -16,93 +13,82 @@ LABEL_MAP = {
 
 IMG_SIZE = (32, 32)  # Redimensionar a 32x32
 
+def cargar_dataset(ruta_dataset):
+    """
+    Carga imágenes y sus etiquetas desde un dataset organizado en carpetas.
+    :param ruta_dataset: Ruta principal del dataset (debe contener subcarpetas).
+    :return: Arrays de imágenes y etiquetas.
+    """
+    imagenes = []
+    etiquetas = []
 
-def load_dataset(dataset_path):
-    images = []
-    labels = []
+    print(f"Cargando dataset desde: {ruta_dataset}")
 
-    print(f"Cargando dataset desde: {dataset_path}")
-
-    # Recorrer carpetas principales (numeros, mayusculas, minusculas)
-    for category in sorted(os.listdir(dataset_path)):
-        category_path = os.path.join(dataset_path, category)
+    for categoria in sorted(os.listdir(ruta_dataset)):
+        ruta_categoria = os.path.join(ruta_dataset, categoria)
 
         # Verificar que la carpeta principal es válida
-        if not os.path.isdir(category_path):
-            print(f"Saltando {category}: No es un directorio válido.")
+        if not os.path.isdir(ruta_categoria):
+            print(f"Saltando {categoria}: No es un directorio válido.")
             continue
 
-        # Diagnóstico: Mostrar qué categorías se están procesando
-        print(f"Procesando categoría: {category}")
+        print(f"Procesando categoría: {categoria}")
 
-        for subcategory in sorted(os.listdir(category_path)):
-            subcategory_path = os.path.join(category_path, subcategory)
+        for subcategoria in sorted(os.listdir(ruta_categoria)):
+            ruta_subcategoria = os.path.join(ruta_categoria, subcategoria)
 
             # Verificar que el subdirectorio es válido
-            if not os.path.isdir(subcategory_path):
-                print(f"Saltando {subcategory}: No es un subdirectorio válido.")
+            if not os.path.isdir(ruta_subcategoria):
+                print(f"Saltando {subcategoria}: No es un subdirectorio válido.")
                 continue
 
-            # Asignar etiquetas según la categoría y subcategoría
             try:
-                if category.lower() == "numeros":
-                    label = int(subcategory)  # Etiquetas para números (0-9)
-                elif category.lower() == "mayusculas":
-                    if subcategory == "Ñ":
-                        label = 36  # Etiqueta específica para Ñ
-                    else:
-                        label = 10 + (ord(subcategory.upper()) - ord('A'))  # Etiquetas para A-Z
-                elif category.lower() == "minusculas":
-                    if subcategory == "ñ":
-                        label = 63  # Etiqueta específica para ñ
-                    else:
-                        label = 37 + (ord(subcategory) - ord('a'))  # Etiquetas para a-z
+                # Asignar etiquetas según la categoría y subcategoría
+                if categoria.lower() == "numeros":
+                    etiqueta = int(subcategoria)  # Etiquetas para números (0-9)
+                elif categoria.lower() == "mayusculas":
+                    etiqueta = 36 if subcategoria == "Ñ" else 10 + (ord(subcategoria.upper()) - ord('A'))
+                elif categoria.lower() == "minusculas":
+                    etiqueta = 63 if subcategoria == "ñ" else 37 + (ord(subcategoria) - ord('a'))
                 else:
-                    print(f"Saltando {subcategory}: Categoría no reconocida.")
+                    print(f"Saltando {subcategoria}: Categoría no reconocida.")
                     continue
             except ValueError as e:
-                print(f"Error al asignar etiqueta para {subcategory}: {e}")
+                print(f"Error al asignar etiqueta para {subcategoria}: {e}")
                 continue
 
             # Procesar imágenes dentro del subdirectorio
-            for img_name in sorted(os.listdir(subcategory_path)):
-                img_path = os.path.join(subcategory_path, img_name)
+            for nombre_imagen in sorted(os.listdir(ruta_subcategoria)):
+                ruta_imagen = os.path.join(ruta_subcategoria, nombre_imagen)
 
                 # Verificar que el archivo es una imagen
-                if not img_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-                    print(f"Saltando {img_name}: No es un archivo de imagen.")
+                if not nombre_imagen.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                    print(f"Saltando {nombre_imagen}: No es un archivo de imagen.")
                     continue
 
                 try:
                     # Leer, redimensionar y normalizar la imagen
-                    img = Image.open(img_path).convert("L")
+                    img = Image.open(ruta_imagen).convert("L")
                     img = img.resize(IMG_SIZE)  # Redimensionar
-                    images.append(np.array(img, dtype=np.float32) / 255.0)
-                    labels.append(label)
-                    print(f"Categoría: {category}, Subcategoría: {subcategory}, Imagen: {img_name}, Etiqueta asignada: {LABEL_MAP[label]}")
-                except Exception as e:
-                    print(f"Error al procesar la imagen {img_name}: {e}")
+                    img_array = np.array(img, dtype=np.float32) / 255.0  # Normalizar
+                    img_array = np.expand_dims(img_array, axis=-1)  # Expandir dimensiones para el modelo
 
-    # Convertir las listas a arrays numpy y devolver
-    return np.array(images).reshape(-1, IMG_SIZE[0], IMG_SIZE[1], 1), np.array(labels)
+                    imagenes.append(img_array)
+                    etiquetas.append(etiqueta)
+                except Exception as e:
+                    print(f"Error al procesar la imagen {nombre_imagen}: {e}")
+
+    # Convertir listas a arrays numpy para entrenar
+    return np.array(imagenes), np.array(etiquetas)
 
 
 if __name__ == "__main__":
     # Ruta a la carpeta raíz del dataset
-    dataset_path = r"C:\Users\barra\.vscode\Inteligencia Artificial\ExamenFinal\ExamenFinalOCR\DatasetsOCR25-26"
+    ruta_dataset = r"DatasetsOCR25-26"
 
-    if not os.path.exists(dataset_path):
-        print(f"Ruta del dataset no encontrada: {dataset_path}")
+    if not os.path.exists(ruta_dataset):
+        print(f"Ruta del dataset no encontrada: {ruta_dataset}")
     else:
-        images, labels = load_dataset(dataset_path)
-        print(f"\n=== Resumen ===")
-        print(f"Número total de imágenes cargadas: {len(images)}")
-        print(f"Número total de etiquetas cargadas: {len(labels)}")
-        print(f"Primeras 10 etiquetas asignadas: {[LABEL_MAP[label] for label in labels[:10]]}")
- 
-
-
-
-
-
-  
+        x, y = cargar_dataset(ruta_dataset)
+        print(f"Número total de imágenes cargadas: {len(x)}")
+        print(f"Número total de etiquetas cargadas: {len(y)}")
