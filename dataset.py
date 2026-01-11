@@ -1,94 +1,144 @@
 import os
+import cv2
 import numpy as np
 from PIL import Image
 
-# Etiquetas extendidas para incluir 'Ñ' y 'ñ'
+# Importar el nuevo preprocesamiento
+try:
+    from advanced_preprocessing import advanced_char_preprocessing
+except ImportError:
+    # Fallback al preprocesamiento anterior
+    def advanced_char_preprocessing(img_array, target_size=(32, 32), debug=False):
+        if len(img_array.shape) == 3:
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+        
+        img_resized = cv2.resize(img_array, target_size)
+        mean_intensity = np.mean(img_resized)
+        
+        if mean_intensity > 127:
+            img_normalized = (255 - img_resized) / 255.0
+        else:
+            img_normalized = img_resized / 255.0
+        
+        return img_normalized.astype(np.float32)
+
+# Mapeo CORRECTO y UNIFICADO
 LABEL_MAP = {
-    **{i: str(i) for i in range(10)},                              # Números: 0-9
-    **{i + 10: chr(i + ord('A')) for i in range(26)},              # Mayúsculas: A-Z
-    36: "Ñ",                                                       # Mayúscula Ñ
-    **{i + 37: chr(i + ord('a')) for i in range(26)},              # Minúsculas: a-z
-    63: "ñ",                                                       # Minúscula ñ
+    # Números 0-9 (labels 0-9)
+    0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9',
+    # Mayúsculas A-Z (labels 10-35)
+    10: 'A', 11: 'B', 12: 'C', 13: 'D', 14: 'E', 15: 'F', 16: 'G', 17: 'H', 18: 'I', 19: 'J',
+    20: 'K', 21: 'L', 22: 'M', 23: 'N', 24: 'O', 25: 'P', 26: 'Q', 27: 'R', 28: 'S', 29: 'T',
+    30: 'U', 31: 'V', 32: 'W', 33: 'X', 34: 'Y', 35: 'Z',
+    # Minúsculas a-z (labels 36-61)
+    36: 'a', 37: 'b', 38: 'c', 39: 'd', 40: 'e', 41: 'f', 42: 'g', 43: 'h', 44: 'i', 45: 'j',
+    46: 'k', 47: 'l', 48: 'm', 49: 'n', 50: 'o', 51: 'p', 52: 'q', 53: 'r', 54: 's', 55: 't',
+    56: 'u', 57: 'v', 58: 'w', 59: 'x', 60: 'y', 61: 'z'
 }
 
-IMG_SIZE = (32, 32)  # Redimensionar a 32x32
+CHAR_TO_LABEL = {v: k for k, v in LABEL_MAP.items()}
 
-def cargar_dataset(ruta_dataset):
+IMG_SIZE = (32, 32)
+
+# Usar el nuevo preprocesamiento como función unificada
+def preprocess_char_unified(img_array, debug=False):
     """
-    Carga imágenes y sus etiquetas desde un dataset organizado en carpetas.
-    :param ruta_dataset: Ruta principal del dataset (debe contener subcarpetas).
-    :return: Arrays de imágenes y etiquetas.
+    Preprocesamiento UNIFICADO mejorado.
     """
-    imagenes = []
-    etiquetas = []
+    return advanced_char_preprocessing(img_array, IMG_SIZE, debug=debug)
 
-    print(f"Cargando dataset desde: {ruta_dataset}")
+# Resto del código igual...
+def extract_label_universal(filename):
+    try:
+        # FORMATO 1: DATASET_IA (0_Nombre.png, A_Nombre.png, a_Nombre.png)
+        if len(filename) > 1 and filename[1] == '_':
+            char = filename[0]
+            if char in CHAR_TO_LABEL:
+                return CHAR_TO_LABEL[char]
+        
+        # FORMATO 2: DatasetCompleto2 (image_X_label_Y.png)
+        if "label_" in filename:
+            parts = filename.split("label_")
+            if len(parts) >= 2:
+                label_str = parts[1].split('.')[0]
+                label = int(label_str)
+                if 0 <= label <= 61:
+                    return label
+        
+        # FORMATO 3: datasetCompleto (img001-001.png a img001-062.png)
+        if filename.startswith("img") and "-" in filename:
+            parts = filename.split("-")
+            if len(parts) >= 2:
+                num_str = parts[1].split('.')[0]
+                img_index = int(num_str)
+                if 1 <= img_index <= 10:
+                    return img_index - 1
+                elif 11 <= img_index <= 36:
+                    return img_index - 11 + 10
+                elif 37 <= img_index <= 62:
+                    return img_index - 37 + 36
+        
+        return None
+    except:
+        return None
 
-    for categoria in sorted(os.listdir(ruta_dataset)):
-        ruta_categoria = os.path.join(ruta_dataset, categoria)
-
-        # Verificar que la carpeta principal es válida
-        if not os.path.isdir(ruta_categoria):
-            print(f"Saltando {categoria}: No es un directorio válido.")
+def load_dataset(dataset_path, dataset_type="new"):
+    images = []
+    labels = []
+    
+    print(f"\n📂 Cargando: {dataset_path}")
+    
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f"No existe: {dataset_path}")
+    
+    files = sorted([f for f in os.listdir(dataset_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    
+    if not files:
+        raise ValueError(f"No hay imágenes en: {dataset_path}")
+    
+    print(f"   📊 {len(files)} archivos encontrados")
+    
+    loaded_count = 0
+    error_count = 0
+    
+    for filename in files:
+        filepath = os.path.join(dataset_path, filename)
+        
+        label = extract_label_universal(filename)
+        if label is None:
+            error_count += 1
             continue
-
-        print(f"Procesando categoría: {categoria}")
-
-        for subcategoria in sorted(os.listdir(ruta_categoria)):
-            ruta_subcategoria = os.path.join(ruta_categoria, subcategoria)
-
-            # Verificar que el subdirectorio es válido
-            if not os.path.isdir(ruta_subcategoria):
-                print(f"Saltando {subcategoria}: No es un subdirectorio válido.")
+        
+        try:
+            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                error_count += 1
                 continue
+            
+            # NUEVO: usar preprocesamiento mejorado
+            img_processed = preprocess_char_unified(img, debug=False)
+            
+            images.append(img_processed)
+            labels.append(label)
+            loaded_count += 1
+            
+        except Exception as e:
+            error_count += 1
+            continue
+    
+    print(f"   ✅ Cargadas: {loaded_count}")
+    print(f"   ❌ Errores: {error_count}")
+    
+    images_array = np.array(images).reshape(-1, IMG_SIZE[0], IMG_SIZE[1], 1)
+    labels_array = np.array(labels)
+    
+    print(f"   📊 Shape final: {images_array.shape}")
+    
+    return images_array, labels_array
 
-            try:
-                # Asignar etiquetas según la categoría y subcategoría
-                if categoria.lower() == "numeros":
-                    etiqueta = int(subcategoria)  # Etiquetas para números (0-9)
-                elif categoria.lower() == "mayusculas":
-                    etiqueta = 36 if subcategoria == "Ñ" else 10 + (ord(subcategoria.upper()) - ord('A'))
-                elif categoria.lower() == "minusculas":
-                    etiqueta = 63 if subcategoria == "ñ" else 37 + (ord(subcategoria) - ord('a'))
-                else:
-                    print(f"Saltando {subcategoria}: Categoría no reconocida.")
-                    continue
-            except ValueError as e:
-                print(f"Error al asignar etiqueta para {subcategoria}: {e}")
-                continue
+# Funciones legacy
+def extract_label_from_old_format(img_name):
+    return extract_label_universal(img_name)
 
-            # Procesar imágenes dentro del subdirectorio
-            for nombre_imagen in sorted(os.listdir(ruta_subcategoria)):
-                ruta_imagen = os.path.join(ruta_subcategoria, nombre_imagen)
-
-                # Verificar que el archivo es una imagen
-                if not nombre_imagen.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-                    print(f"Saltando {nombre_imagen}: No es un archivo de imagen.")
-                    continue
-
-                try:
-                    # Leer, redimensionar y normalizar la imagen
-                    img = Image.open(ruta_imagen).convert("L")
-                    img = img.resize(IMG_SIZE)  # Redimensionar
-                    img_array = np.array(img, dtype=np.float32) / 255.0  # Normalizar
-                    img_array = np.expand_dims(img_array, axis=-1)  # Expandir dimensiones para el modelo
-
-                    imagenes.append(img_array)
-                    etiquetas.append(etiqueta)
-                except Exception as e:
-                    print(f"Error al procesar la imagen {nombre_imagen}: {e}")
-
-    # Convertir listas a arrays numpy para entrenar
-    return np.array(imagenes), np.array(etiquetas)
-
-
-if __name__ == "__main__":
-    # Ruta a la carpeta raíz del dataset
-    ruta_dataset = r"DatasetsOCR25-26"
-
-    if not os.path.exists(ruta_dataset):
-        print(f"Ruta del dataset no encontrada: {ruta_dataset}")
-    else:
-        x, y = cargar_dataset(ruta_dataset)
-        print(f"Número total de imágenes cargadas: {len(x)}")
-        print(f"Número total de etiquetas cargadas: {len(y)}")
+def extract_label_from_new_format(img_name):
+    return extract_label_universal(img_name)

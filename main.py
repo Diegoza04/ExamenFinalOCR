@@ -1,158 +1,199 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import tensorflow as tf
 import os
-import numpy as np
-from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from modelo import construir_modelo, guardar_modelo, cargar_modelo
-from dataset import cargar_dataset
-from preprocesamiento import procesar_imagen
+import sys
+from model_training import train_model
+from predict import predict_universal 
 
 
-def predecir_caracter(ruta_imagen, modelo, label_map):
+def check_and_create_model():
     """
-    Realiza una predicción sobre la imagen dada y devuelve el carácter correspondiente.
-    :param ruta_imagen: Ruta a la imagen de entrada.
-    :param modelo: Modelo entrenado.
-    :param label_map: Mapa de etiquetas para decodificar la predicción.
-    :return: Predicción del carácter.
+    Verifica si existe el modelo, si no lo entrena automáticamente.
     """
-    try:
-        # Procesar la imagen
-        imagen_procesada = procesar_imagen(ruta_imagen)
+    if not os.path.exists("ocr_model.h5"):
+        response = messagebox.askyesno(
+            "Modelo no encontrado", 
+            "No se encontró el modelo OCR. ¿Desea entrenar uno nuevo?\n\n" +
+            "Esto puede tomar varios minutos."
+        )
+        if response:
+            print("🚀 Iniciando entrenamiento automático...")
+            try:
+                train_model()
+                messagebox.showinfo("Entrenamiento completo", "El modelo se ha entrenado exitosamente.")
+                return True
+            except Exception as e:
+                messagebox.showerror("Error", f"Error durante el entrenamiento:\n{str(e)}")
+                return False
+        else:
+            messagebox.showwarning("Sin modelo", "No se puede usar la aplicación sin un modelo.")
+            return False
+    return True
 
-        if imagen_procesada is None:
-            return "Error: No se pudo procesar la imagen."
 
-        # Expandir dimensiones para formato de lote
-        imagen_procesada = np.expand_dims(imagen_procesada, axis=0)
-
-        # Obtener predicciones del modelo
-        predicciones = modelo.predict(imagen_procesada)
-        indice = np.argmax(predicciones)
-
-        # Obtener el carácter correspondiente
-        caracter = label_map.get(indice, "Desconocido")
-        return caracter
-    except Exception as e:
-        return f"Error durante la predicción: {e}"
-
-
-def entrenar_modelo_mejorado(x_train, y_train, x_val, y_val, numero_clases, guardado_path):
+def train_interface():
     """
-    Entrena un modelo mejorado con data augmentation y class weights.
-    :param x_train: Datos de entrenamiento.
-    :param y_train: Etiquetas de entrenamiento.
-    :param x_val: Datos de validación.
-    :param y_val: Etiquetas de validación.
-    :param numero_clases: Número total de clases.
-    :param guardado_path: Ruta para guardar el modelo entrenado.
-    :return: Modelo entrenado.
+    Entrena un nuevo modelo desde la interfaz.
     """
-    # Balancear las clases con class_weight
-    class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
-    class_weights = dict(enumerate(class_weights))
-
-    # Data augmentation
-    datagen = ImageDataGenerator(
-        rotation_range=15,       # Rotaciones pequeñas
-        width_shift_range=0.1,   # Desplazamientos horizontales
-        height_shift_range=0.1,  # Desplazamientos verticales
-        zoom_range=0.2           # Zoom
+    response = messagebox.askyesno(
+        "Re-entrenar modelo", 
+        "¿Está seguro de que desea re-entrenar el modelo?\n\n" +
+        "Esto sobrescribirá el modelo actual."
     )
-    datagen.fit(x_train)
-
-    # Construir modelo mejorado
-    modelo = construir_modelo()
-    modelo.fit(
-        datagen.flow(x_train, y_train, batch_size=32),
-        validation_data=(x_val, y_val),
-        epochs=30,
-        class_weight=class_weights
-    )
-
-    # Guardar el modelo entrenado
-    guardar_modelo(modelo, guardado_path)
-    print(f"Modelo mejorado guardado en: {guardado_path}")
-
-    return modelo
+    if response:
+        try:
+            print("🔄 Re-entrenando modelo...")
+            train_model()
+            messagebox.showinfo("Re-entrenamiento completo", "El modelo se ha re-entrenado exitosamente.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error durante el re-entrenamiento:\n{str(e)}")
 
 
-def predecir_caracteres_en_carpeta(ruta_carpeta, modelo, ruta_archivo_resultados, label_map):
+def predict_universal_gui():
     """
-    Recorre una carpeta, reconoce cada imagen y guarda los resultados en un archivo.
-    :param ruta_carpeta: Ruta de la carpeta con imágenes para procesar.
-    :param modelo: Modelo entrenado.
-    :param ruta_archivo_resultados: Ruta del archivo donde se guardarán los resultados.
-    :param label_map: Mapa que convierte índices en caracteres.
+    NUEVA: Función universal que detecta automáticamente el tipo de contenido.
     """
-    # Verificar si la carpeta existe
-    if not os.path.isdir(ruta_carpeta):
-        print(f"Error: La carpeta '{ruta_carpeta}' no se encontró.")
+    if not check_and_create_model():
         return
+        
+    image_path = filedialog.askopenfilename(
+        title="Selecciona una imagen con texto (letra, palabra o frase)",
+        filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.bmp *.tiff")]
+    )
+    if image_path:
+        try:
+            print(f"🔍 Procesando: {image_path}")
+            
+            # Preguntar si quiere modo debug
+            debug_response = messagebox.askyesno(
+                "Modo Debug", 
+                "¿Activar modo debug para ver detalles del procesamiento?"
+            )
+            
+            # Usar la nueva función universal
+            prediction, boxes = predict_universal(image_path, debug=debug_response)
+            
+            print(f"✅ Resultado: '{prediction}'")
+            
+            # Mostrar resultado con información del tipo detectado
+            num_chars = len(boxes)
+            if num_chars == 1:
+                content_type = "LETRA INDIVIDUAL"
+                emoji = "🔤"
+            elif 2 <= num_chars <= 6:
+                content_type = "PALABRA"
+                emoji = "📝"
+            else:
+                content_type = "FRASE"
+                emoji = "📄"
+            
+            # Ventana de resultado mejorada
+            result_message = f"{emoji} Tipo detectado: {content_type}\n"
+            result_message += f"🔍 Caracteres encontrados: {num_chars}\n"
+            result_message += f"📝 Texto reconocido:\n\n'{prediction}'"
+            
+            messagebox.showinfo("Resultado del Reconocimiento", result_message)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error en el reconocimiento:\n{str(e)}")
+            print(f"❌ Error: {e}")
 
-    print(f"Procesando todas las imágenes en la carpeta: {ruta_carpeta}")
 
-    # Abrir el archivo de resultados
-    with open(ruta_archivo_resultados, "w", encoding="utf-8") as f:
-        f.write("Resultados de las predicciones:\n")
-        f.write("--------------------------------\n")
-
-        # Recorrer todos los archivos en la carpeta
-        for nombre_archivo in sorted(os.listdir(ruta_carpeta)):
-            ruta_imagen = os.path.join(ruta_carpeta, nombre_archivo)
-
-            # Verificar que el archivo sea una imagen
-            if not nombre_archivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
-                print(f"Archivo ignorado (no es imagen): {nombre_archivo}")
-                f.write(f"{nombre_archivo}: No se procesó (archivo no es imagen válida).\n")
-                continue
-
-            # Realizar la predicción para la imagen
-            resultado = predecir_caracter(ruta_imagen, modelo, label_map)
-            print(f"Imagen: {nombre_archivo} -> Carácter predicho: {resultado}")
-
-            # Guardar el resultado en el archivo
-            f.write(f"{nombre_archivo}: {resultado}\n")
-
-    print(f"\nResultados guardados en: {ruta_archivo_resultados}")
+def main():
+    """
+    Función principal que maneja tanto GUI como línea de comandos.
+    """
+    # Si hay argumentos de línea de comandos, usar modo consola
+    if len(sys.argv) > 1:
+        command = sys.argv[1]
+        
+        if command == "train":
+            print("🚀 Iniciando entrenamiento...")
+            train_model()
+            
+        elif command == "predict" and len(sys.argv) >= 3:
+            image_path = sys.argv[2]
+            if os.path.exists(image_path):
+                print(f"🔍 Prediciendo: {image_path}")
+                phrase, _ = predict_universal(image_path, debug=True)
+                print(f"\n✅ RESULTADO FINAL: '{phrase}'")
+            else:
+                print(f"❌ No existe el archivo: {image_path}")
+                
+        else:
+            print("Uso:")
+            print("  python main.py train                - Entrenar modelo")
+            print("  python main.py predict <imagen>     - Predecir imagen")
+        
+        return
+    
+    # NUEVA GUI SIMPLIFICADA
+    root = tk.Tk()
+    root.title("OCR Universal - Sistema Inteligente")
+    root.geometry("400x350")
+    root.resizable(False, False)
+    
+    # Configurar colores y estilo
+    root.configure(bg='#f0f0f0')
+    
+    # Título principal
+    title_label = tk.Label(root, text="🔤 OCR", 
+                          font=("Arial", 18, "bold"), 
+                          fg="#2c3e50", bg='#f0f0f0')
+    title_label.pack(pady=15)
+    
+    # Estado del modelo
+    if not os.path.exists("ocr_model.h5"):
+        status_label = tk.Label(root, text="⚠️ Modelo no encontrado", 
+                               fg="red", bg='#f0f0f0', font=("Arial", 10))
+        status_label.pack()
+    else:
+        status_label = tk.Label(root, text="✅ Modelo listo", 
+                               fg="green", bg='#f0f0f0', font=("Arial", 10))
+        status_label.pack()
+    
+    # Separador
+    separator1 = tk.Frame(root, height=2, bg="#bdc3c7")
+    separator1.pack(fill=tk.X, padx=30, pady=15)
+    
+    # BOTÓN PRINCIPAL - RECONOCIMIENTO UNIVERSAL
+    button_predict = tk.Button(root, text="🎯 RECONOCER TEXTO", 
+                              command=predict_universal_gui,
+                              bg="#3498db", fg="white", 
+                              font=("Arial", 14, "bold"), 
+                              width=25, height=2,
+                              relief=tk.RAISED, bd=3)
+    button_predict.pack(pady=15)
+    
+    # Separador
+    separator2 = tk.Frame(root, height=1, bg="#ecf0f1")
+    separator2.pack(fill=tk.X, padx=50, pady=10)
+    
+    # Botón de entrenamiento (secundario)
+    button_train = tk.Button(root, text="🔄 Re-entrenar Modelo", 
+                           command=train_interface,
+                           bg="#e67e22", fg="white", 
+                           font=("Arial", 10), 
+                           width=20, height=1)
+    button_train.pack(pady=5)
+    
+    # Información adicional CON CONDICIONES ÓPTIMAS
+    info_frame = tk.Frame(root, bg='#f0f0f0')
+    info_frame.pack(pady=15)
+    
+    info_label = tk.Label(info_frame, 
+                         text="🎯 CONDICIONES ÓPTIMAS:\n" +
+                              "✅ Fondo blanco, texto negro • 🔤 Letra de imprenta\n" +
+                              "📐 Tamaño mínimo 50px • 📊 Alto contraste\n" +
+                              "❌ Evitar: cursiva, fondos complejos, bajo contraste", 
+                         font=("Arial", 8), 
+                         fg="#34495e", bg='#f0f0f0', 
+                         justify="center")
+    info_label.pack()
+    
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    # Configura si vas a entrenar un modelo nuevo o cargar uno existente
-    entrenamiento = False
-
-    # Etiquetas del dataset (LABEL_MAP)
-    LABEL_MAP = {
-        **{i: str(i) for i in range(10)},                              # Números: 0-9
-        **{i + 10: chr(i + ord('A')) for i in range(26)},             # Mayúsculas: A-Z
-        36: "Ñ",
-        **{i + 37: chr(i + ord('a')) for i in range(26)},             # Minúsculas: a-z
-        63: "ñ"
-    }
-
-    if entrenamiento:
-        print("Cargando y procesando el dataset...")
-
-        # Cargar dataset
-        x, y = cargar_dataset("DatasetsOCR25-26")
-
-        # Dividir en entrenamiento y validación
-        split = int(0.8 * len(x))
-        x_train, y_train = x[:split], y[:split]
-        x_val, y_val = x[split:], y[split:]
-
-        # Crear y entrenar el modelo mejorado
-        modelo = entrenar_modelo_mejorado(x_train, y_train, x_val, y_val, len(LABEL_MAP), "modelo_mejorado_ocr.h5")
-
-    else:
-        print("Cargando modelo entrenado...")
-        modelo = cargar_modelo("modelo_mejorado_ocr.h5")
-        print("Modelo cargado con éxito.")
-
-        # Ruta a la carpeta con imágenes a procesar
-        ruta_carpeta_imagenes = r"C:\Users\barra\.vscode\Inteligencia Artificial\ExamenFinal\ExamenFinalOCR\DatasetsOCR25-26\mayusculas\A"
-
-        # Ruta al archivo donde se guardarán los resultados
-        ruta_archivo_resultados = r"C:\Users\barra\.vscode\Inteligencia Artificial\ExamenFinal\ExamenFinalOCR\resultados.txt"
-
-        # Procesar todas las imágenes en la carpeta
-        predecir_caracteres_en_carpeta(ruta_carpeta_imagenes, modelo, ruta_archivo_resultados, LABEL_MAP)
+    main()
