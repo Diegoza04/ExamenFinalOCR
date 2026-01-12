@@ -118,7 +118,7 @@ El objetivo principal es desarrollar un sistema OCR que maneje tanto texto impre
 ---
 
 ## Solución Propuesta
-
+![Diagrama del OCR](diagramaIA.svg)
 ### Preparación y Preprocesamiento de Datos
 
 1. **Carga del Dataset**:
